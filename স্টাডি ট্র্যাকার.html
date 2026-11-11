@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>স্টাডি ট্র্যাকার</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f6f7fb;--card:#fff;--tx:#14171f;--mut:#6b7280;--ok:#16a34a;--bad:#dc2626;--ac:#2563eb}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1218;--card:#1a1f29;--tx:#eef1f6;--mut:#9aa3b2;--ok:#4ade80;--bad:#f87171;--ac:#60a5fa}}
+:root[data-theme="dark"]{--bg:#0f1218;--card:#1a1f29;--tx:#eef1f6;--mut:#9aa3b2;--ok:#4ade80;--bad:#f87171;--ac:#60a5fa}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Noto Sans Bengali",sans-serif;padding:16px;max-width:480px;margin-inline:auto}
+.card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px;text-align:center}
+h1{font-size:20px;margin:4px 0 12px}
+video{width:100%;max-height:240px;border-radius:12px;background:#000;object-fit:cover;transform:scaleX(-1)}
+.time{font-size:48px;font-weight:700;font-variant-numeric:tabular-nums;margin:8px 0}
+.status{font-weight:600;font-size:16px}
+.mut{color:var(--mut);font-size:13px}
+button{width:100%;padding:14px;border:0;border-radius:12px;background:var(--ac);color:#fff;font-size:16px;font-weight:600;margin-top:8px}
+button.stop{background:var(--bad)}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/tracking-min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/data/face-min.js"></script>
+</head>
+<body>
+<h1>📚 স্টাডি ট্র্যাকার</h1>
+<div class="card">
+  <video id="v" playsinline muted></video>
+  <div class="status mut" id="st">শুরু করতে বোতাম চাপুন</div>
+  <div class="time" id="t">00:00:00</div>
+  <div class="mut">এই সেশনে পড়ার সময়</div>
+  <button id="b">▶ পড়া শুরু করুন</button>
+</div>
+<div class="card">
+  <div class="mut">আজ মোট পড়েছেন</div>
+  <div class="time" id="d" style="font-size:32px">00:00:00</div>
+  <button id="r" style="background:var(--mut)">আজকের হিসাব রিসেট</button>
+</div>
+<div class="mut" style="text-align:center">ক্যামেরার ছবি কোথাও পাঠানো বা সেভ হয় না — সবকিছু আপনার ফোনেই চলে।</div>
+<script>
+const $=id=>document.getElementById(id);
+const GRACE=5000; // ৫ সেকেন্ড মুখ না দেখলে টাইমার থামবে
+let fb=false,task=null,stream=null,det=null,run=false,session=0,lastSeen=0,lastTick=0,loop=null;
+const key='study-'+new Date().toDateString();
+let today=0;
+try{today=parseInt(localStorage.getItem(key)||'0',10)||0}catch(e){}
+const f=s=>{s=Math.floor(s/1000);return[Math.floor(s/3600),Math.floor(s/60)%60,s%60].map(x=>String(x).padStart(2,'0')).join(':')};
+const draw=()=>{$('t').textContent=f(session);$('d').textContent=f(today)};
+draw();
+function setSt(m,c){$('st').textContent=m;$('st').style.color=c||'var(--mut)'}
+async function start(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){setSt('এই ব্রাউজারে ক্যামেরা চলছে না। Chrome বা Safari-তে খুলুন।','var(--bad)');return}
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false});
+  }catch(e){setSt('ক্যামেরার অনুমতি পাওয়া যায়নি। ব্রাউজারে ক্যামেরা চালু করুন।','var(--bad)');return}
+  $('v').srcObject=stream;await $('v').play();
+  if('FaceDetector' in window){det=new FaceDetector({fastMode:true,maxDetectedFaces:1})}
+  else if(window.tracking){
+    const tr=new tracking.ObjectTracker('face');tr.setInitialScale(4);tr.setStepSize(2);tr.setEdgesDensity(0.1);
+    tr.on('track',e=>{fb=e.data.length>0});
+    task=tracking.track('#v',tr);
+  }else{setSt('ফেস ডিটেকশন লোড হয়নি। ইন্টারনেট চেক করুন।','var(--bad)');stream.getTracks().forEach(t=>t.stop());return}
+  run=true;session=0;lastSeen=Date.now();lastTick=Date.now();
+  $('b').textContent='■ থামান';$('b').className='stop';
+  loop=setInterval(tick,700);
+}
+async function tick(){
+  let found=false;
+  if(det){try{found=(await det.detect($('v'))).length>0}catch(e){}}else found=fb;
+  const now=Date.now(),dt=now-lastTick;lastTick=now;
+  if(found)lastSeen=now;
+  if(now-lastSeen<GRACE){
+    session+=dt;today+=dt;
+    setSt('✅ পড়ছেন — সময় গণনা হচ্ছে','var(--ok)');
+  }else setSt('⏸ মুখ দেখা যাচ্ছে না — টাইমার থেমে আছে','var(--bad)');
+  draw();
+  try{localStorage.setItem(key,String(today))}catch(e){}
+}
+function stop(){
+  run=false;clearInterval(loop);if(task){task.stop();task=null}det=null;
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  $('v').srcObject=null;$('b').textContent='▶ পড়া শুরু করুন';$('b').className='';
+  setSt('থেমে আছে');
+}
+$('b').onclick=()=>run?stop():start();
+$('r').onclick=()=>{today=0;draw();try{localStorage.setItem(key,'0')}catch(e){}};
+</script>
+</body>
+</html>
